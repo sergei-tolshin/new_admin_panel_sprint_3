@@ -1,21 +1,50 @@
 import logging
+from datetime import datetime
+from time import sleep
 from typing import Optional
 
 from config.settings import etl_settings
 from services.es import ElasticsearchService
 from services.pg import PostgresService, models
 
-from .state import etl_state
-
 logger = logging.getLogger(__name__)
 
 
 class ETL:
-    def __init__(self, settings=etl_settings):
+    def __init__(self, settings=etl_settings, state=None):
         self.conf = settings
-        self.pg_client = PostgresService()
-        self.es_client = ElasticsearchService()
-        self.state = etl_state.get_state('modified') or {}
+        self.state = state
+        self.pg_client = None
+        self.es_client = None
+        self.states = None
+
+    def __enter__(self):
+        logger.info('ETL process started')
+        self.state.set_state('etl_process', 'started')
+
+        try:
+            self.pg_client = PostgresService()
+            self.es_client = ElasticsearchService()
+        except ConnectionError:
+            self.state.set_state('etl_process', 'stopped')
+            raise
+
+        self.states = self.state.get_state('modified') or {}
+        return self
+
+    def __exit__(self, type, value, traceback):
+        logger.info('Close all connections ...')
+        if self.es_client is not None:
+            self.es_client.close()
+
+        if self.pg_client is not None:
+            self.pg_client.close()
+
+        logger.info('ETL process stopped')
+        self.state.set_state('etl_process', 'stopped')
+
+        logger.info('Pause %s seconds', etl_settings.UPLOAD_INTERVAL)
+        sleep(self.conf.UPLOAD_INTERVAL)
 
     def extract(self) -> None:
         """
@@ -25,27 +54,38 @@ class ETL:
         """
         person_filmwork_ids: list[str] = []
         genre_filmwork_ids: list[str] = []
+        filmwork_ids: list[str] = []
+        modified_person: str = self.states.get('person') or datetime.min
+        modified_genre: str = self.states.get('genre') or datetime.min
+        modified_filmwork: str = self.states.get('filmwork') or datetime.min
 
         """
         Получаем список ID новых/измененныех персонажей и список ID фильмов
         свызанных, в которых участвуют выбранные персонажи
         """
-        if persons := self.pg_client.get_modified_person(state=self.state):
+        if persons := self.pg_client.get_modified_person(
+                timestamp=modified_person):
+            self.states['person'] = f'{persons[-1].modified}'
             person_filmwork_ids = self.pg_client.get_filmwork_by_person(
-                persons=persons)
+                persons=[person.id for person in persons])
 
         """
         Получаем список ID новых/измененных жанров и список ID фильмов
         по выбранным жанрам
         """
-        if genres := self.pg_client.get_modified_genre(state=self.state):
+        if genres := self.pg_client.get_modified_genre(
+                timestamp=modified_genre):
+            self.states['genre'] = f'{genres[-1].modified}'
             genre_filmwork_ids = self.pg_client.get_filmwork_by_genre(
-                genres=genres)
+                genres=[genre.id for genre in genres])
 
         """
         Получаем список ID новых/измененных фильмов
         """
-        filmwork_ids = self.pg_client.get_modified_filmwork(state=self.state)
+        if filmworks := self.pg_client.get_modified_filmwork(
+                timestamp=modified_filmwork):
+            self.states['filmwork'] = f'{genres[-1].modified}'
+            filmwork_ids = [filmwork.id for filmwork in filmworks]
 
         """Формируем множество уникальных ID новых/измененных фильмов"""
         unique_filmwork_ids = set(
@@ -131,9 +171,4 @@ class ETL:
 
     def save_state(self):
         """Сохраняем последнее состояние"""
-        etl_state.set_state('modified', self.state)
-
-    def close_connect(self):
-        """Закрываем подключения"""
-        self.es_client.close()
-        self.pg_client.close()
+        self.state.set_state('modified', self.states)

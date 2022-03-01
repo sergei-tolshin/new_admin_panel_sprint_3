@@ -35,7 +35,7 @@ class ElasticsearchService:
             with open(file_path) as json_file:
                 return json.load(json_file)
         else:
-            logger.warning(f"Index schema file '{file_path}' not found")
+            logger.warning("Index schema file '%s' not found", file_path)
             return None
 
     @backoff(exception=ConnectionError)
@@ -55,7 +55,8 @@ class ElasticsearchService:
             self.client.indices.create(index=index_name, body=body)
             logger.info(f"Index '{index_name}' created")
         else:
-            logger.warning(f"Index '{index_name}' not created, missing schema")
+            logger.warning(
+                "Index '%s' not created, missing schema", index_name)
 
     @backoff(exception=ConnectionError)
     def transfer_data(self, actions) -> None:
@@ -68,4 +69,4 @@ class ElasticsearchService:
             ],
             stats_only=True
         )
-        logger.info(f'Transfer data: success: {success}, failed: {failed}')
+        logger.info('Transfer data: success: %s, failed: %s', success, failed)

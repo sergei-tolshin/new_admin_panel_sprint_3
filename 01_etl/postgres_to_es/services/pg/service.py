@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime
 from typing import List, Optional
 
 import psycopg2
@@ -17,38 +16,32 @@ class PostgresService:
     def __init__(self):
         self.state_field = etl_settings.STATE_FIELD
         self.conn = self.__connect()
-        self.pg = self.__cursor(self.conn)
 
     @backoff(exception=OperationalError)
     def __connect(self):
         logger.info('Connecting to PostgreSQL ...')
-        with PostgresConnector().connection as pg_conn:
+        with PostgresConnector().connection as conn:
             logger.info('Connected to PostgreSQL completed')
-            return pg_conn
-
-    def __cursor(self, connect):
-        return PostgresCursor(conn=connect).cursor
+            return conn
 
     def close(self):
         if self.conn:
-            self.pg.close()
             self.conn.close()
             logger.info('PostgreSQL connection closed')
 
     def executor(self, query):
         """Возвращает результат запроса к PostgreSQL"""
-        self.pg.execute(query)
-        return self.pg.fetchall()
+        with self.conn.cursor() as curs:
+            curs.execute(query)
+            return curs.fetchall()
 
-    def get_modified_person(self, state) -> list:
+    def get_modified_person(self, timestamp) -> list:
         """Возвращает список новых/измененных персонажей"""
-        modified: str = state.get('person') or datetime.min
         persons = self.executor(
-            query=queries.modified_person(timestamp=modified)
+            query=queries.modified_person(timestamp=timestamp)
         )
         if persons:
-            state['person'] = f'{persons[-1].get(self.state_field)}'
-            return [models.PersonModel(**person).id for person in persons]
+            return [models.PersonModel(**person) for person in persons]
         return []
 
     def get_filmwork_by_person(self, persons: List[str]) -> List[str]:
@@ -60,15 +53,13 @@ class PostgresService:
             models.PersonFilmworkModel(**filmwork).id for filmwork in filmworks
         ]
 
-    def get_modified_genre(self, state) -> list:
+    def get_modified_genre(self, timestamp) -> list:
         """Возвращает список новых/измененных жанров"""
-        modified: str = state.get('genre') or datetime.min
         genres = self.executor(
-            query=queries.modified_genre(timestamp=modified)
+            query=queries.modified_genre(timestamp=timestamp)
         )
         if genres:
-            state['genre'] = f'{genres[-1].get(self.state_field)}'
-            return [models.GenreModel(**genre).id for genre in genres]
+            return [models.GenreModel(**genre) for genre in genres]
         return []
 
     def get_filmwork_by_genre(self, genres: List[str]) -> List[str]:
@@ -80,16 +71,13 @@ class PostgresService:
             models.GenreFilmworkModel(**filmwork).id for filmwork in filmworks
         ]
 
-    def get_modified_filmwork(self, state) -> list:
+    def get_modified_filmwork(self, timestamp) -> list:
         """Возвращает список новых/измененных фильмов"""
-        modified: str = state.get('filmwork') or datetime.min
         filmworks = self.executor(
-            query=queries.modified_filmworks(timestamp=modified)
+            query=queries.modified_filmworks(timestamp=timestamp)
         )
         if filmworks:
-            state['filmwork'] = f'{filmworks[-1].get(self.state_field)}'
-            return [models.FilmworkModel(**filmwork).id
-                    for filmwork in filmworks]
+            return [models.FilmworkModel(**filmwork) for filmwork in filmworks]
         return []
 
     def get_filmwork_instances(self, ids: tuple) -> None:
@@ -120,19 +108,3 @@ class PostgresConnector:
             return self.conn
         else:
             return self.__create_conn()
-
-
-class PostgresCursor:
-    def __init__(self, conn):
-        self._cursor: Optional[DictCursor] = None
-        self._conn = conn
-
-    def __create_cursor(self) -> DictCursor:
-        return self._conn.cursor()
-
-    @property
-    def cursor(self) -> DictCursor:
-        if self._cursor and not self._cursor.closed:
-            return self._cursor
-        else:
-            return self.__create_cursor()

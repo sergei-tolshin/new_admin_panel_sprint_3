@@ -1,7 +1,8 @@
 import abc
 import json
+import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from config.settings import etl_settings
 
@@ -22,20 +23,26 @@ class BaseStorage:
 
 
 class JsonFileStorage(BaseStorage):
-    def __init__(self, file_path: Optional[str] = None):
+    def __init__(self, file_path: Optional[str] = None,
+                 file_name: Optional[str] = None):
         self.file_path = file_path
+        self.file_name = file_name
+        self.file_state = f'{self.file_path}{state_file_name}'
 
     def save_state(self, state: dict) -> None:
         """Сохранить состояние в постоянное хранилище"""
-        file_state = self.retrieve_state()
-        with open(f"{self.file_path}{state_file_name}", 'w') as storage:
+        file_state = self.retrieve_state() or {}
+        with open(self.file_state, 'w') as storage:
             save_state: dict = {**file_state, **state}
             json.dump(save_state, storage, ensure_ascii=False, indent=4)
 
-    def retrieve_state(self) -> dict:
+    def retrieve_state(self) -> Union[dict, None]:
         """Загрузить состояние локально из постоянного хранилища"""
-        with open(f"{self.file_path}{state_file_name}", 'r') as storage:
-            return json.load(storage)
+        if os.path.exists(self.file_state):
+            with open(self.file_state, 'r') as storage:
+                return json.load(storage)
+        else:
+            return None
 
 
 class State:
@@ -49,6 +56,7 @@ class State:
 
     def __init__(self, storage: BaseStorage):
         self.storage = storage
+        self.state = self.storage.retrieve_state()
 
     def set_state(self, key: str, value: Any) -> None:
         """Установить состояние для определённого ключа"""
@@ -56,7 +64,10 @@ class State:
 
     def get_state(self, key: str) -> Any:
         """Получить состояние по определённому ключу"""
-        return self.storage.retrieve_state().get(key)
+        if self.state is not None:
+            return self.state.get(key)
+        return None
 
 
-etl_state = State(storage=JsonFileStorage(file_path=default_file_path))
+# etl_state = State(storage=JsonFileStorage(
+#     file_path=default_file_path, file_name=state_file_name))
