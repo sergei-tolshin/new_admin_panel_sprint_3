@@ -67,7 +67,3 @@ class State:
         if self.state is not None:
             return self.state.get(key)
         return None
-
-
-# etl_state = State(storage=JsonFileStorage(
-#     file_path=default_file_path, file_name=state_file_name))
