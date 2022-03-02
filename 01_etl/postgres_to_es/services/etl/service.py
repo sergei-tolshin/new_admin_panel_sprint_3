@@ -25,12 +25,12 @@ class ETL:
         try:
             self.pg_client = PostgresService()
             self.es_client = ElasticsearchService()
-        except ConnectionError:
+        except Exception:
             self.state.set_state('etl_process', 'stopped')
             raise
-
-        self.states = self.state.get_state('modified') or {}
-        return self
+        else:
+            self.states = self.state.get_state('modified') or {}
+            return self
 
     def __exit__(self, type, value, traceback):
         logger.info('Close all connections ...')

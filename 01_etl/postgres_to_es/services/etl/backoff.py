@@ -10,7 +10,7 @@ def backoff(
     start_sleep_time=0.1,
     factor=2,
     border_sleep_time=30,
-    max_attempts=100
+    max_attempts=2
 ):
     """
     Функция для повторного выполнения функции через некоторое время,
@@ -44,7 +44,7 @@ def backoff(
 
                     """Вызываем исключение при привышении количества попыток"""
                     if attempt == max_attempts:
-                        raise ConnectionError
+                        raise error
 
                     if time_out >= border_sleep_time:
                         time_out = border_sleep_time
